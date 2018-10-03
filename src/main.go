@@ -2,13 +2,17 @@ package main
 
 
 type question_struct struct{
-	Id       string `json:"id,omitempty"`
-	Question string `json:"question,omitempty"`
+	Id 			string `json:"id,omitempty"`
+	Blob		string `json:"blob,omitempty"`
+	Timestamp	string `json:"timestamp,omitempty"`
 }
 
 type answer_struct struct{
-	Id 		string	`json:"id,omitempty"`
-	Answer 	string	`json:"answer,omitempty"`
+	Id 			string	`json:"id,omitempty"`
+	Qid 		string	`json:"qid,omitempty"`
+	Blob 		string	`json:"blob,omitempty"`
+	Username	string	`json:"username,omitempty"`
+	Timestamp 	string	`json:"timestamp,omitempty"`
 }
 
 func main(){
