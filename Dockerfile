@@ -4,8 +4,7 @@ MAINTAINER Sameera Dissanayake (samees3dissanayake.com)
 
 # install dependencies
 RUN	go get github.com/gorilla/mux
-RUN go get github.com/mongodb/mongo-go-driver/mongo
-RUN go get github.com/mongodb/mongo-go-driver/bson
+RUN go get gopkg.in/mgo.v2
 
 # env
 ENV MONGO_HOST 172.17.0.1
