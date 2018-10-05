@@ -1,47 +1,37 @@
 package main
 
-
 import (
-	"context"
 	"fmt"
-	"github.com/mongodb/mongo-go-driver/bson"
-	"github.com/mongodb/mongo-go-driver/mongo"
+
+	"gopkg.in/mgo.v2"
+	"gopkg.in/mgo.v2/bson"
 )
 
-var mongoClient *mongo.Client
 var err error
-var database *mongo.Database
-var answersCollection *mongo.Collection
-var questionsCollection *mongo.Collection
-
+var answersCollection *mgo.Collection
+var questionsCollection *mgo.Collection
+var session mgo.Session
 
 func initMongo() bool {
+	fmt.Println(mongoConfig.database)
 	//setting connection string
-	connectionString := fmt.Sprintf("mongodb://%s:%s@%s:%s", mongoConfig.username, mongoConfig.password,
-		mongoConfig.host, mongoConfig.port)
-	if mongoConfig.username == "" && mongoConfig.password == "" {
-		connectionString = fmt.Sprintf("mongodb://%s:%s",
-			mongoConfig.host, mongoConfig.port)
-	} else if mongoConfig.username == "" || mongoConfig.password == "" {
-		fmt.Println("Please provide MONGO_USER and MONGO_PASSWORD")
-		return false
-	}
-	fmt.Println("Connection String : " + connectionString)
-
-	//connecting with mongo db
-	mongoClient, err = mongo.Connect(context.Background(), connectionString)
+	connString := fmt.Sprintf("%s:%s", mongoConfig.host, mongoConfig.port)
+	println(connString)
+	session, err := mgo.DialWithInfo(&mgo.DialInfo{
+		Addrs:    []string{connString},
+		Username: mongoConfig.username,
+		Password: mongoConfig.password,
+		Database: mongoConfig.database,
+	})
 	if err != nil {
-		fmt.Println("Mongo connection error occured!")
-		fmt.Printf("Connection String : %s\n", connectionString)
-		return false
+		fmt.Println(err)
 	}
 
 	//setting database and collection
-	database = mongoClient.Database(mongoConfig.database)
-	answersCollection = database.Collection("answers")
-	questionsCollection = database.Collection("questions")
+	answersCollection = session.DB(mongoConfig.database).C("answers")
+	questionsCollection = session.DB(mongoConfig.database).C("questions")
 
-return true
+	return true
 }
 
 // insert user answers to database
@@ -50,7 +40,8 @@ func insertAnswers(ans []answer_struct) bool {
 	for a := range ans {
 		intf = append(intf, ans[a])
 	}
-	_, err := answersCollection.InsertMany(context.Background(), intf)
+
+	err := answersCollection.Insert(intf...)
 	if err != nil {
 		fmt.Println(err)
 		return false
@@ -59,27 +50,27 @@ func insertAnswers(ans []answer_struct) bool {
 }
 
 // get questions from database
-func getQuestions() []question_struct{
+func getQuestions(offset int, limit int) []question_struct {
 	var allQns []question_struct
-	cursor, err := questionsCollection.Find(context.Background(), bson.NewDocument())
+	query := questionsCollection.Find(bson.M{}).Skip(offset).Limit(limit)
+	err := query.All(&allQns)
 	if err != nil {
 		fmt.Println(err)
+		return []question_struct{}
 	}
-
-	for cursor.Next(context.Background()) {
-		var result question_struct
-		cursor.Decode(&result)
-		allQns = append(allQns, result)
+	if len(allQns) == 0 {
+		return []question_struct{}
 	}
 	return allQns
 }
 
 func insertQuestions(qns []question_struct) bool {
 	var intf []interface{}
-	for q := range qns {
-		intf = append(intf, qns[q])
+	for a := range qns {
+		intf = append(intf, qns[a])
 	}
-	_, err := questionsCollection.InsertMany(context.Background(), intf)
+
+	err := questionsCollection.Insert(intf...)
 	if err != nil {
 		fmt.Println(err)
 		return false
@@ -87,51 +78,108 @@ func insertQuestions(qns []question_struct) bool {
 	return true
 }
 
-func getAnswers(id string) []answer_struct{
+func getAnswers(id string, offset int, limit int) []answer_struct {
 	var ans []answer_struct
-	cursor, err := answersCollection.Find(context.Background(), bson.NewDocument(bson.EC.String("qid", id)))
+	queryInterface := make(map[string]string)
+	queryInterface["qid"] = id
+	query := answersCollection.Find(queryInterface).Skip(offset).Limit(limit)
+	err := query.All(&ans)
 	if err != nil {
 		fmt.Println(err)
-	}
-
-	for cursor.Next(context.Background()) {
-		var result answer_struct
-		cursor.Decode(&result)
-		ans = append(ans, result)
 	}
 	return ans
 }
 
-// func getAnswers() map[question_struct][]answer_struct{
-// 	var m map[question_struct][]answer_struct
-// 	m = make(map[question_struct]answer_struct)
+func getAll(offset int, limit int) []byte {
 
-// 	m[{"id":"001","blob":"jkl","timestamp":"890"}] = [
-// 	{"id":"001","qid":"001","blob":"jkl","username":"yuii","timestamp":"890"},
-// 	]
-
-// 	return m
-// }
-
-func getAll() map[string][]answer_struct{
-	var m map[string][]answer_struct
-	m = make(map[string][]answer_struct)
-
-	
-	// m["john"] = append(x["john"], "id":"001","qid":"001","blob":"jkl","username":"yuii","timestamp":"890")
- //    // x["john"] = append(x["john"], "value1")
-
-    cursor, err := answersCollection.Find(context.Background(), bson.NewDocument(bson.EC.String("qid", "001")))
+	values := []bson.M{}
+	pipe := []bson.M{
+		{"$lookup": bson.M{
+			"from":         "answers",
+			"localField":   "id",
+			"foreignField": "qid",
+			"as":           "answers",
+		},
+		},
+	}
+	pipe = append(pipe,
+		bson.M{
+			"$skip": offset,
+		}, bson.M{
+			"$limit": limit,
+		})
+	result := questionsCollection.Pipe(pipe)
+	err := result.All(&values)
 	if err != nil {
 		fmt.Println(err)
 	}
 
-	for cursor.Next(context.Background()) {
-		var result answer_struct
-		cursor.Decode(&result)
-		// ans = append(ans, result)
-		m["john"] = append(m["john"], result)
-	}
+	jsString, err := bson.MarshalJSON(values)
 
-	return m
+	if err != nil {
+		return []byte{}
+	}
+	return jsString
+
 }
+
+// getAll test function
+
+// func testData() {
+// 	qns := []question_struct{
+// 		question_struct{
+// 			"q1",
+// 			"what is question 1?",
+// 			"",
+// 		},
+// 		question_struct{
+// 			"q2",
+// 			"what is question 2?",
+// 			"",
+// 		},
+// 		question_struct{
+// 			"q3",
+// 			"what is question 3?",
+// 			"",
+// 		},
+// 		question_struct{
+// 			"q4",
+// 			"what is question 4?",
+// 			"",
+// 		},
+// 	}
+// 	insertQuestions(qns)
+
+// 	ans := []answer_struct{
+// 		answer_struct{
+// 			"a0",
+// 			"q1",
+// 			"answer 0",
+// 			"user 1",
+// 			"",
+// 		},
+// 		answer_struct{
+// 			"a1",
+// 			"q3",
+// 			"answer 1",
+// 			"user 1",
+// 			"",
+// 		},
+// 		answer_struct{
+// 			"a2",
+// 			"q4",
+// 			"answer 2",
+// 			"user 2",
+// 			"",
+// 		},
+// 		answer_struct{
+// 			"a3",
+// 			"q3",
+// 			"answer 3",
+// 			"user 2",
+// 			"",
+// 		},
+// 	}
+// insertAnswers(ans)
+// fmt.Println(string(getAll()))
+// }
