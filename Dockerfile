@@ -12,7 +12,6 @@ ENV MONGO_HOST 172.17.0.1
 # copy app
 ADD . /app
 WORKDIR /app
-#COPY docker-entrypoint.sh .
 
 # build
 RUN go build -o build/qapi src/*.go
