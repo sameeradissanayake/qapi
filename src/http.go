@@ -111,5 +111,5 @@ func initHttp() {
 	router.HandleFunc("/postquestions", PostQuestions).Methods("POST")
 	router.HandleFunc("/getanswers", GetAnswers).Methods("GET")
 	router.HandleFunc("/getall", GetAll).Methods("GET")
-	log.Fatal(http.ListenAndServe(":12345", router))
+	log.Fatal(http.ListenAndServe(":"+muxConfig.port, router))
 }
